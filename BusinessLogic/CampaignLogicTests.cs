@@ -1,13 +1,29 @@
-using Xunit;
+﻿using Xunit;
 using TauManager.BusinessLogic;
 using Microsoft.EntityFrameworkCore;
 using System;
 using System.Linq;
+using Moq;
+using TauManager.Utils;
+using System.Threading.Tasks;
 
 namespace TauManager.UnitTests.BusinessLogic
 {
     public class CampaignLogicTests
     {
+        private Mock<ITauHeadClient> _tauHeadClientMock { get; set; }
+        public CampaignLogicTests()
+        {
+            _tauHeadClientMock = new Mock<ITauHeadClient>();
+            _tauHeadClientMock.Setup(th => th.GetItemData("Test1")).ReturnsAsync(new Models.Item{
+                Name = "Test item 1",
+                Slug = "test-item-1",
+                Type = Models.Item.ItemType.Weapon,
+                WeaponType = Models.Item.ItemWeaponType.Blade,
+                WeaponRange = Models.Item.ItemWeaponRange.Short,
+            });
+        }
+
         private DbContextOptions<TauDbContext> _setupCampaignTestContext(string databaseName)
         {
             var options = new DbContextOptionsBuilder<TauDbContext>()
@@ -63,7 +79,7 @@ namespace TauManager.UnitTests.BusinessLogic
 
             using (var context = new TauDbContext(options))
             {
-                var campaignLogic = new CampaignLogic(context);
+                var campaignLogic = new CampaignLogic(context, _tauHeadClientMock.Object);
                 var result = campaignLogic.GetCampaignOverview(1, false, false, false, 1);
                 Assert.Empty(result.CurrentCampaigns);
                 Assert.Single(result.FutureCampaigns);
@@ -80,7 +96,7 @@ namespace TauManager.UnitTests.BusinessLogic
 
             using (var context = new TauDbContext(options))
             {
-                var campaignLogic = new CampaignLogic(context);
+                var campaignLogic = new CampaignLogic(context, _tauHeadClientMock.Object);
                 var result = campaignLogic.GetCampaignById(1, false, false, 1);
                 Assert.Equal(3, result.Players.Count());
                 Assert.NotNull(result.Campaign);
@@ -98,7 +114,7 @@ namespace TauManager.UnitTests.BusinessLogic
 
             using (var context = new TauDbContext(options))
             {
-                var campaignLogic = new CampaignLogic(context);
+                var campaignLogic = new CampaignLogic(context, _tauHeadClientMock.Object);
                 await campaignLogic.CreateOrEditCampaign(new Models.Campaign{
                     Station = "YoG",
                     Name = "Campaign #2",
@@ -122,7 +138,7 @@ namespace TauManager.UnitTests.BusinessLogic
 
             using (var context = new TauDbContext(options))
             {
-                var campaignLogic = new CampaignLogic(context);
+                var campaignLogic = new CampaignLogic(context, _tauHeadClientMock.Object);
                 await campaignLogic.CreateOrEditCampaign(new Models.Campaign{
                     Id = 1,
                     Station = "YoG",
@@ -151,7 +167,7 @@ namespace TauManager.UnitTests.BusinessLogic
 
             using (var context = new TauDbContext(options))
             {
-                var campaignLogic = new CampaignLogic(context);
+                var campaignLogic = new CampaignLogic(context, _tauHeadClientMock.Object);
                 await campaignLogic.CreateOrEditCampaign(new Models.Campaign{
                     Station = "YoG",
                     Name = "Campaign #2",
@@ -169,13 +185,13 @@ namespace TauManager.UnitTests.BusinessLogic
         }
 
         [Fact]
-        public async System.Threading.Tasks.Task Test_CreateOrEditCampaign_EditNonExistentCampaignAsync()
+        public async void Test_CreateOrEditCampaign_EditNonExistentCampaignAsync()
         {
             var options = _setupCampaignTestContext("Test_CreateOrEditCampaign_EditNonExistentCampaignAsync");
 
             using (var context = new TauDbContext(options))
             {
-                var campaignLogic = new CampaignLogic(context);
+                var campaignLogic = new CampaignLogic(context, _tauHeadClientMock.Object);
                 await campaignLogic.CreateOrEditCampaign(new Models.Campaign{
                     Id = 3,
                     Station = "YoG",
@@ -192,5 +208,120 @@ namespace TauManager.UnitTests.BusinessLogic
                 Assert.Null(context.Campaign.SingleOrDefault(c => c.Id == 3));
             }
         }
+
+        [Fact]
+        public async void Test_AddLootByTauheadURL_Correct()
+        {
+            var options = _setupCampaignTestContext("Test_AddLootByTauheadURL_Correct");
+
+            using (var context = new TauDbContext(options))
+            {
+                var campaignLogic = new CampaignLogic(context, _tauHeadClientMock.Object);
+                var result = await campaignLogic.AddLootByTauheadURL(1, "Test1");
+                Assert.Single(context.Item);
+                Assert.Single(context.CampaignLoot);
+                Assert.Single(context.Campaign.SingleOrDefault(c => c.Id == 1).Loot);
+                Assert.Equal(result.Loot.Item.Slug, context.Campaign.SingleOrDefault(c => c.Id == 1).Loot.FirstOrDefault().Item.Slug);
+                Assert.Equal(result.Loot.Item.Id, context.Campaign.SingleOrDefault(c => c.Id == 1).Loot.FirstOrDefault().Item.Id);
+                Assert.Equal("test-item-1", result.Loot.Item.Slug);
+            }
+        }
+
+        [Fact]
+        public async void Test_AddLootByTauheadURL_WrongURL()
+        {
+            var options = _setupCampaignTestContext("Test_AddLootByTauheadURL_WrongURL");
+
+            using (var context = new TauDbContext(options))
+            {
+                var campaignLogic = new CampaignLogic(context, _tauHeadClientMock.Object);
+                var result = await campaignLogic.AddLootByTauheadURL(1, "Test2");
+                Assert.Empty(context.Item);
+                Assert.Empty(context.CampaignLoot);
+                Assert.Null(result);
+            }
+        }
+
+        [Fact]
+        public async void Test_AddLootByTauheadURL_WrongCampaignId()
+        {
+            var options = _setupCampaignTestContext("Test_AddLootByTauheadURL_WrongCampaignId");
+
+            using (var context = new TauDbContext(options))
+            {
+                var campaignLogic = new CampaignLogic(context, _tauHeadClientMock.Object);
+                var result = await campaignLogic.AddLootByTauheadURL(2, "Test1");
+                Assert.Empty(context.Item);
+                Assert.Empty(context.CampaignLoot);
+                Assert.Null(result);
+            }
+        }
+
+        [Fact]
+        public async void Test_AddLootByTauheadURL_ExistingItem()
+        {
+            var options = _setupCampaignTestContext("Test_AddLootByTauheadURL_ExistingItem");
+            using (var context = new TauDbContext(options))
+            {
+                context.Item.Add(new Models.Item{
+                    Name = "Test item 1",
+                    Slug = "test-item-1",
+                    Type = Models.Item.ItemType.Weapon,
+                    WeaponType = Models.Item.ItemWeaponType.Rifle,
+                    WeaponRange = Models.Item.ItemWeaponRange.Long,
+                });
+                context.SaveChanges();
+            }
+
+            using (var context = new TauDbContext(options))
+            {
+                var campaignLogic = new CampaignLogic(context, _tauHeadClientMock.Object);
+                // This test should return and link the item already in DB - it has some different properties
+                var result = await campaignLogic.AddLootByTauheadURL(1, "Test1");
+                Assert.Single(context.Item);
+                Assert.Single(context.CampaignLoot);
+                var item = context.Item.FirstOrDefault();
+                Assert.Single(context.Campaign.SingleOrDefault(c => c.Id == 1).Loot);
+                Assert.Equal(result.Loot.Item.Slug, context.Campaign.SingleOrDefault(c => c.Id == 1).Loot.FirstOrDefault().Item.Slug);
+                Assert.Equal(result.Loot.Item.Id, context.Campaign.SingleOrDefault(c => c.Id == 1).Loot.FirstOrDefault().Item.Id);
+                Assert.Equal("test-item-1", result.Loot.Item.Slug);
+                Assert.Equal(Models.Item.ItemWeaponRange.Long, item.WeaponRange); // differs from mock data
+                Assert.Equal(Models.Item.ItemWeaponType.Rifle, item.WeaponType); // differs from mock data
+            }
+        }
+
+        [Fact]
+        public void Test_GetNewCampaign()
+        {
+            var options = _setupCampaignTestContext("Test_GetNewCampaign");
+            using (var context = new TauDbContext(options))
+            {
+                var campaignLogic = new CampaignLogic(context, _tauHeadClientMock.Object);
+                var result = campaignLogic.GetNewCampaign(1);
+                Assert.NotNull(result);
+                Assert.NotNull(result.Campaign);
+                Assert.Equal(Models.Campaign.CampaignDifficulty.Easy, result.Campaign.Difficulty);
+                Assert.Equal(0, result.Campaign.Tiers);
+                Assert.Null(result.Campaign.ManagerId);
+                Assert.Equal(1, result.Campaign.SyndicateId);
+            }
+        }
+
+        [Fact]
+        public async void Test_ParseCampaignPage_Empty()
+        {
+            var options = _setupCampaignTestContext("Test_ParseCampaignPage_Empty");
+            using (var context = new TauDbContext(options))
+            {
+                var campaignLogic = new CampaignLogic(context, _tauHeadClientMock.Object);
+                var result = await campaignLogic.ParseCampaignPage(String.Empty, 1);
+                Assert.NotNull(result);
+                var campaign = context.Campaign.FirstOrDefault();
+                Assert.NotNull(campaign);
+                Assert.Equal(Models.Campaign.CampaignStatus.Completed, campaign.Status);
+            }
+        }
+        // TODO: Create a proper set of tests for parsing the different campaign files
+
      }
 }
