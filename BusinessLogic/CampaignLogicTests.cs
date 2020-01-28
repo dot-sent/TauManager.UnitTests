@@ -323,5 +323,57 @@ namespace TauManager.UnitTests.BusinessLogic
         }
         // TODO: Create a proper set of tests for parsing the different campaign files
 
+        [Fact]
+        public async void Test_SetSignupStatus_SignupCorrect()
+        {
+            var options = _setupCampaignTestContext("Test_SetSignupStatus_SignupCorrect");
+            using (var context = new TauDbContext(options))
+            {
+                var campaignLogic = new CampaignLogic(context, _tauHeadClientMock.Object);
+                var result = await campaignLogic.SetSignupStatus(1, 1, true);
+                Assert.True(result);
+                Assert.Single(context.CampaignSignup);
+                var campaign = context.Campaign.SingleOrDefault(c => c.Id == 1);
+                Assert.Single(campaign.Signups);
+                Assert.Equal(1, campaign.Signups.FirstOrDefault().PlayerId);
+            }
+        }
+
+        [Fact]
+        public async void Test_SetSignupStatus_SignupCorrectRemove()
+        {
+            var options = _setupCampaignTestContext("Test_SetSignupStatus_SignupCorrectRemove");
+            using (var context = new TauDbContext(options))
+            {
+                context.CampaignSignup.Add(new Models.CampaignSignup{
+                    CampaignId = 1,
+                    Attending = true,
+                    PlayerId = 1,
+                });
+                context.SaveChanges();
+            }
+            using (var context = new TauDbContext(options))
+            {
+                var campaignLogic = new CampaignLogic(context, _tauHeadClientMock.Object);
+                var result = await campaignLogic.SetSignupStatus(1, 1, false);
+                Assert.True(result);
+                Assert.Empty(context.CampaignSignup);
+                var campaign = context.Campaign.SingleOrDefault(c => c.Id == 1);
+                Assert.Empty(campaign.Signups);
+            }
+        }
+
+        [Fact]
+        public async void Test_SetSignupStatus_NonexistentCampaign()
+        {
+            var options = _setupCampaignTestContext("Test_SetSignupStatus_NonexistentCampaign");
+            using (var context = new TauDbContext(options))
+            {
+                var campaignLogic = new CampaignLogic(context, _tauHeadClientMock.Object);
+                var result = await campaignLogic.SetSignupStatus(1, 2, true);
+                Assert.False(result);
+                Assert.Empty(context.CampaignSignup);
+            }
+        }
      }
 }
