@@ -375,5 +375,148 @@ namespace TauManager.UnitTests.BusinessLogic
                 Assert.Empty(context.CampaignSignup);
             }
         }
+
+        [Fact]
+        public async void Test_SetSignupStatus_NonexistentUser()
+        {
+            var options = _setupCampaignTestContext("Test_SetSignupStatus_NonexistentUser");
+            using (var context = new TauDbContext(options))
+            {
+                var campaignLogic = new CampaignLogic(context, _tauHeadClientMock.Object);
+                var result = await campaignLogic.SetSignupStatus(5, 1, true);
+                Assert.False(result);
+                Assert.Empty(context.CampaignSignup);
+            }
+        }
+
+        [Fact]
+        public async void Test_SetSignupStatus_SignupRemoveNonexistent()
+        {
+            var options = _setupCampaignTestContext("Test_SetSignupStatus_SignupRemoveNonexistent");
+            using (var context = new TauDbContext(options))
+            {
+                var campaignLogic = new CampaignLogic(context, _tauHeadClientMock.Object);
+                var result = await campaignLogic.SetSignupStatus(1, 1, false);
+                Assert.False(result);
+                Assert.Empty(context.CampaignSignup);
+            }
+        }
+
+        [Fact]
+        public async void Test_SetSignupStatus_SignupAddTwice()
+        {
+            var options = _setupCampaignTestContext("Test_SetSignupStatus_SignupAddTwice");
+            using (var context = new TauDbContext(options))
+            {
+                context.CampaignSignup.Add(new Models.CampaignSignup{
+                    CampaignId = 1,
+                    Attending = true,
+                    PlayerId = 1,
+                });
+                context.SaveChanges();
+            }
+            using (var context = new TauDbContext(options))
+            {
+                var campaignLogic = new CampaignLogic(context, _tauHeadClientMock.Object);
+                var result = await campaignLogic.SetSignupStatus(1, 1, true);
+                Assert.False(result);
+                Assert.Single(context.CampaignSignup);
+            }
+        }
+
+        [Fact]
+        void Test_GetCampaignAttendance_CorrectAllPlayers()
+        {
+            var options = _setupCampaignTestContext("Test_GetCampaignAttendance_CorrectAllPlayers");
+            using (var context = new TauDbContext(options))
+            {
+                context.Campaign.Add(new Models.Campaign{
+                    Id = 2,
+                    Station = "Yards of Gadani",
+                    Name = "Campaign #2",
+                    Comments = "Test comments",
+                    Difficulty = Models.Campaign.CampaignDifficulty.Extreme,
+                    Tiers = 31,
+                    SyndicateId = 1,
+                    Status = Models.Campaign.CampaignStatus.Completed,
+                    UTCDateTime = DateTime.Parse("2019-12-31 00:00:00"),
+                    ManagerId = 1,
+                });
+                context.CampaignAttendance.Add(new Models.CampaignAttendance{
+                    CampaignId = 1,
+                    PlayerId = 1,
+                });
+                context.CampaignAttendance.Add(new Models.CampaignAttendance{
+                    CampaignId = 2,
+                    PlayerId = 1,
+                });
+                context.CampaignAttendance.Add(new Models.CampaignAttendance{
+                    CampaignId = 2,
+                    PlayerId = 3,
+                });
+                context.SaveChanges();
+            }
+            using (var context = new TauDbContext(options))
+            {
+                var campaignLogic = new CampaignLogic(context, _tauHeadClientMock.Object);
+                var result = campaignLogic.GetCampaignAttendance(null, 1);
+
+                Assert.Equal(100, result.TotalAttendance[1]);
+                Assert.Equal(100, result.T5HardAttendance[1]);
+                Assert.Equal(100, result.Last10T5HardAttendance[1]);
+
+                Assert.DoesNotContain(2, result.TotalAttendance.Keys);
+
+                Assert.Equal(50, result.TotalAttendance[3]);
+                Assert.Equal(100, result.T5HardAttendance[3]);
+                Assert.Equal(100, result.Last10T5HardAttendance[3]);
+            }
+        }
+
+        [Fact]
+        void Test_GetCampaignAttendance_CorrectSpecificPlayer()
+        {
+            var options = _setupCampaignTestContext("Test_GetCampaignAttendance_CorrectSpecificPlayer");
+            using (var context = new TauDbContext(options))
+            {
+                context.Campaign.Add(new Models.Campaign{
+                    Id = 2,
+                    Station = "Yards of Gadani",
+                    Name = "Campaign #2",
+                    Comments = "Test comments",
+                    Difficulty = Models.Campaign.CampaignDifficulty.Extreme,
+                    Tiers = 31,
+                    SyndicateId = 1,
+                    Status = Models.Campaign.CampaignStatus.Completed,
+                    UTCDateTime = DateTime.Parse("2019-12-31 00:00:00"),
+                    ManagerId = 1,
+                });
+                context.CampaignAttendance.Add(new Models.CampaignAttendance{
+                    CampaignId = 1,
+                    PlayerId = 1,
+                });
+                context.CampaignAttendance.Add(new Models.CampaignAttendance{
+                    CampaignId = 2,
+                    PlayerId = 1,
+                });
+                context.CampaignAttendance.Add(new Models.CampaignAttendance{
+                    CampaignId = 2,
+                    PlayerId = 3,
+                });
+                context.SaveChanges();
+            }
+            using (var context = new TauDbContext(options))
+            {
+                var campaignLogic = new CampaignLogic(context, _tauHeadClientMock.Object);
+                var result = campaignLogic.GetCampaignAttendance(1, 1);
+
+                Assert.Equal(100, result.TotalAttendance[1]);
+                Assert.Equal(100, result.T5HardAttendance[1]);
+                Assert.Equal(100, result.Last10T5HardAttendance[1]);
+
+                Assert.DoesNotContain(2, result.TotalAttendance.Keys);
+                Assert.DoesNotContain(3, result.TotalAttendance.Keys);
+            }
+        }
      }
 }
