@@ -41,6 +41,7 @@ namespace TauManager.UnitTests.BusinessLogic
                     Name = "Leader",
                     Active = true,
                     SyndicateId = 1,
+                    Level = 5.2M,
                 });
                 context.Player.Add(new Models.Player{
                     Id = 2,
@@ -73,9 +74,9 @@ namespace TauManager.UnitTests.BusinessLogic
         }
 
         [Fact]
-        public void Test_GetCampaignOverview()
+        public void Test_GetCampaignOverview_Correct()
         {
-            var options = _setupCampaignTestContext("Test_GetCampaignOverview");
+            var options = _setupCampaignTestContext("Test_GetCampaignOverview_Correct");
 
             using (var context = new TauDbContext(options))
             {
@@ -90,9 +91,115 @@ namespace TauManager.UnitTests.BusinessLogic
         }
 
         [Fact]
-        public void Test_GetCampaignById()
+        public void Test_GetCampaignOverview_WithLoot()
         {
-            var options = _setupCampaignTestContext("Test_GetCampaignById");
+            var options = _setupCampaignTestContext("Test_GetCampaignOverview_WithLoot");
+            using (var context = new TauDbContext(options))
+            {
+                var campaign = context.Campaign.FirstOrDefault();
+                campaign.Status = Models.Campaign.CampaignStatus.Completed;
+                context.Item.Add(new Models.Item
+                {
+                    Id = 1,
+                    Name = "Test1",
+                    Tier = 1,
+                    Type = Models.Item.ItemType.Weapon,
+                    Rarity = Models.Item.ItemRarity.Epic,
+                });
+                context.Item.Add(new Models.Item
+                {
+                    Id = 2,
+                    Name = "Test2",
+                    Tier = 2,
+                    Type = Models.Item.ItemType.Weapon,
+                    Rarity = Models.Item.ItemRarity.Epic,
+                });
+                context.CampaignLoot.Add(new Models.CampaignLoot
+                {
+                    Id = 1,
+                    CampaignId = 1,
+                    ItemId = 1,
+                    Status = Models.CampaignLoot.CampaignLootStatus.Undistributed,
+                });
+                context.CampaignLoot.Add(new Models.CampaignLoot
+                {
+                    Id = 2,
+                    CampaignId = 1,
+                    ItemId = 2,
+                    Status = Models.CampaignLoot.CampaignLootStatus.Undistributed,
+                });
+                context.LootRequest.Add(new Models.LootRequest{
+                    LootId = 2,
+                    RequestedById = 1,
+                    RequestedForId = 1,
+                    Status = Models.LootRequest.LootRequestStatus.Interested,
+                });
+                context.LootRequest.Add(new Models.LootRequest{
+                    LootId = 2,
+                    RequestedById = 2,
+                    RequestedForId = 2,
+                    Status = Models.LootRequest.LootRequestStatus.SpecialOffer,
+                    SpecialOfferDescription = "Special offer description stub",
+                });
+                context.PlayerListPositionHistory.Add(new Models.PlayerListPositionHistory
+                {
+                    PlayerId = 1,
+                    LootRequestId = null,
+                    Comment = "Initial seed",
+                    Id = 1,
+                });
+                context.PlayerListPositionHistory.Add(new Models.PlayerListPositionHistory
+                {
+                    PlayerId = 2,
+                    LootRequestId = null,
+                    Comment = "Initial seed",
+                    Id = 2,
+                });
+                context.CampaignSignup.Add(new Models.CampaignSignup
+                {
+                    CampaignId = 2,
+                    PlayerId = 1,
+                    Attending = true,
+                });
+                context.CampaignAttendance.Add(new Models.CampaignAttendance{
+                    CampaignId = 2,
+                    PlayerId = 1,
+                });
+                context.SaveChanges();
+            }
+            using (var context = new TauDbContext(options))
+            {
+                var campaignLogic = new CampaignLogic(context, _tauHeadClientMock.Object);
+                var result = campaignLogic.GetCampaignOverview(1, false, false, false, 1);
+                Assert.Empty(result.CurrentCampaigns);
+                Assert.Empty(result.FutureCampaigns);
+                Assert.Single(result.PastCampaigns);
+                Assert.Equal(5, result.LootStatuses.Keys.Count);
+                Assert.Equal(2, result.LootToDistribute.Count);
+                var OKloot = result.LootToDistribute.SingleOrDefault(l => l.Loot.ItemId == 1);
+                Assert.NotNull(OKloot);
+                Assert.False(OKloot.TierRestriction);
+                Assert.False(OKloot.RequestExists);
+                Assert.Null(OKloot.Request);
+                Assert.Empty(OKloot.AllRequests);
+                var higherTierLoot = result.LootToDistribute.SingleOrDefault(l => l.Loot.ItemId == 2);
+                Assert.NotNull(higherTierLoot);
+                Assert.True(higherTierLoot.TierRestriction);
+                Assert.True(higherTierLoot.RequestExists);
+                Assert.NotNull(higherTierLoot.Request);
+                Assert.Equal(2, higherTierLoot.AllRequests.Count);
+
+                Assert.Single(result.MySignups.Keys);
+                Assert.Equal(2, result.MySignups.Keys.First());
+                Assert.Single(result.MyAttendance.Keys);
+                Assert.Equal(2, result.MyAttendance.Keys.First());
+            }
+        }
+
+        [Fact]
+        public void Test_GetCampaignById_CorrectWithoutLoot()
+        {
+            var options = _setupCampaignTestContext("Test_GetCampaignById_CorrectWithoutLoot");
 
             using (var context = new TauDbContext(options))
             {
@@ -100,10 +207,88 @@ namespace TauManager.UnitTests.BusinessLogic
                 var result = campaignLogic.GetCampaignById(1, false, false, 1);
                 Assert.Equal(3, result.Players.Count());
                 Assert.NotNull(result.Campaign);
-                Assert.Null(result.Loot);
+                Assert.Empty(result.Loot);
                 Assert.Equal(4, result.DifficultyLevels.Keys.Count);
                 Assert.Equal(8, result.Statuses.Keys.Count);
                 Assert.Empty(result.KnownEpics);
+            }
+        }
+
+        [Fact]
+        public void Test_GetCampaignById_CorrectWithLoot()
+        {
+            var options = _setupCampaignTestContext("Test_GetCampaignById_CorrectWithLoot");
+            using (var context = new TauDbContext(options))
+            {
+                context.Item.Add(new Models.Item
+                {
+                    Id = 1,
+                    Name = "Test1",
+                    Tier = 1,
+                    Type = Models.Item.ItemType.Weapon,
+                    Rarity = Models.Item.ItemRarity.Epic,
+                });
+                context.Item.Add(new Models.Item
+                {
+                    Id = 2,
+                    Name = "Test2",
+                    Tier = 2,
+                    Type = Models.Item.ItemType.Weapon,
+                    Rarity = Models.Item.ItemRarity.Epic,
+                });
+                context.CampaignLoot.Add(new Models.CampaignLoot
+                {
+                    Id = 1,
+                    CampaignId = 1,
+                    ItemId = 1,
+                    Status = Models.CampaignLoot.CampaignLootStatus.Undistributed,
+                });
+                context.CampaignLoot.Add(new Models.CampaignLoot
+                {
+                    Id = 2,
+                    CampaignId = 1,
+                    ItemId = 2,
+                    Status = Models.CampaignLoot.CampaignLootStatus.Undistributed,
+                });
+                context.SaveChanges();
+            }
+            using (var context = new TauDbContext(options))
+            {
+                var campaignLogic = new CampaignLogic(context, _tauHeadClientMock.Object);
+                var result = campaignLogic.GetCampaignById(1, false, false, 1);
+                Assert.Equal(3, result.Players.Count());
+                Assert.NotNull(result.Campaign);
+                Assert.Equal(4, result.DifficultyLevels.Keys.Count);
+                Assert.Equal(8, result.Statuses.Keys.Count);
+                Assert.Equal(2, result.KnownEpics.Count());
+                Assert.NotNull(result.Loot);
+                Assert.Equal(2, result.Loot.Count());
+            }
+        }
+
+        [Fact]
+        public void Test_GetCampaignById_NonexistentCampaign()
+        {
+            var options = _setupCampaignTestContext("Test_GetCampaignById_NonexistentCampaign");
+
+            using (var context = new TauDbContext(options))
+            {
+                var campaignLogic = new CampaignLogic(context, _tauHeadClientMock.Object);
+                var result = campaignLogic.GetCampaignById(2, false, false, 1);
+                Assert.Null(result);
+            }
+        }
+
+        [Fact]
+        public void Test_GetCampaignById_WrongSyndicate()
+        {
+            var options = _setupCampaignTestContext("Test_GetCampaignById_WrongSyndicate");
+
+            using (var context = new TauDbContext(options))
+            {
+                var campaignLogic = new CampaignLogic(context, _tauHeadClientMock.Object);
+                var result = campaignLogic.GetCampaignById(1, false, false, 2);
+                Assert.Null(result);
             }
         }
 
@@ -156,6 +341,36 @@ namespace TauManager.UnitTests.BusinessLogic
                 Assert.NotNull(campaign);
                 Assert.Equal("Test comment updated", campaign.Comments);
                 Assert.Equal(2, campaign.ManagerId);
+                Assert.Equal("YoG", campaign.Station);
+            }
+        }
+
+        [Fact]
+        public async void Test_CreateOrEditCampaign_EditCorrectCampaignNullSyndicateZeroManager()
+        {
+            var options = _setupCampaignTestContext("Test_CreateOrEditCampaign_EditCorrectCampaignNullSyndicateZeroManager");
+
+            using (var context = new TauDbContext(options))
+            {
+                var campaignLogic = new CampaignLogic(context, _tauHeadClientMock.Object);
+                await campaignLogic.CreateOrEditCampaign(new Models.Campaign{
+                    Id = 1,
+                    Station = "YoG",
+                    Name = "Campaign #1",
+                    Comments = "Test comment updated",
+                    Difficulty = Models.Campaign.CampaignDifficulty.Extreme,
+                    Tiers = 31,
+                    SyndicateId = null,
+                    Status = Models.Campaign.CampaignStatus.Planned,
+                    UTCDateTime = DateTime.Parse("2020-12-29 00:00:00"),
+                    ManagerId = 0,
+                }, 1);
+                Assert.Equal(1, context.Campaign.Count());
+                var campaign = context.Campaign.SingleOrDefault(c => c.Id == 1);
+                Assert.NotNull(campaign);
+                Assert.Equal(1, campaign.SyndicateId);
+                Assert.Equal("Test comment updated", campaign.Comments);
+                Assert.Null(campaign.ManagerId);
                 Assert.Equal("YoG", campaign.Station);
             }
         }
@@ -518,5 +733,370 @@ namespace TauManager.UnitTests.BusinessLogic
                 Assert.DoesNotContain(3, result.TotalAttendance.Keys);
             }
         }
-     }
+
+        [Fact]
+        void Test_GetCampaignAttendance_NonExistingPlayer()
+        {
+            var options = _setupCampaignTestContext("Test_GetCampaignAttendance_NonExistingPlayer");
+            using (var context = new TauDbContext(options))
+            {
+                context.Campaign.Add(new Models.Campaign{
+                    Id = 2,
+                    Station = "Yards of Gadani",
+                    Name = "Campaign #2",
+                    Comments = "Test comments",
+                    Difficulty = Models.Campaign.CampaignDifficulty.Extreme,
+                    Tiers = 31,
+                    SyndicateId = 1,
+                    Status = Models.Campaign.CampaignStatus.Completed,
+                    UTCDateTime = DateTime.Parse("2019-12-31 00:00:00"),
+                    ManagerId = 1,
+                });
+                context.CampaignAttendance.Add(new Models.CampaignAttendance{
+                    CampaignId = 1,
+                    PlayerId = 1,
+                });
+                context.CampaignAttendance.Add(new Models.CampaignAttendance{
+                    CampaignId = 2,
+                    PlayerId = 1,
+                });
+                context.CampaignAttendance.Add(new Models.CampaignAttendance{
+                    CampaignId = 2,
+                    PlayerId = 3,
+                });
+                context.SaveChanges();
+            }
+            using (var context = new TauDbContext(options))
+            {
+                var campaignLogic = new CampaignLogic(context, _tauHeadClientMock.Object);
+                var result = campaignLogic.GetCampaignAttendance(4, 1);
+
+                Assert.Empty(result.TotalAttendance);
+                Assert.Null(result.T5HardAttendance);
+                Assert.Empty(result.Last10T5HardAttendance);
+            }
+        }
+
+        [Fact]
+        public void Test_PlayerCanEditCampaign_Success()
+        {
+            var options = _setupCampaignTestContext("Test_PlayerCanEditCampaign_Success");
+            using (var context = new TauDbContext(options))
+            {
+                var campaignLogic = new CampaignLogic(context, _tauHeadClientMock.Object);
+                var result = campaignLogic.PlayerCanEditCampaign(1, 1);
+                Assert.True(result);
+            }
+        }
+
+        [Fact]
+        public void Test_PlayerCanEditCampaign_NullPlayer()
+        {
+            var options = _setupCampaignTestContext("Test_PlayerCanEditCampaign_NullPlayer");
+            using (var context = new TauDbContext(options))
+            {
+                var campaignLogic = new CampaignLogic(context, _tauHeadClientMock.Object);
+                var result = campaignLogic.PlayerCanEditCampaign(null, 1);
+                Assert.False(result);
+            }
+        }
+
+        [Fact]
+        public void Test_PlayerCanEditCampaign_NonExistentPlayer()
+        {
+            var options = _setupCampaignTestContext("Test_PlayerCanEditCampaign_NonExistentPlayer");
+            using (var context = new TauDbContext(options))
+            {
+                var campaignLogic = new CampaignLogic(context, _tauHeadClientMock.Object);
+                var result = campaignLogic.PlayerCanEditCampaign(4, 1);
+                Assert.False(result);
+            }
+        }
+
+        [Fact]
+        public void Test_PlayerCanEditCampaign_NonExistentCampaign()
+        {
+            var options = _setupCampaignTestContext("Test_PlayerCanEditCampaign_NonExistentCampaign");
+            using (var context = new TauDbContext(options))
+            {
+                var campaignLogic = new CampaignLogic(context, _tauHeadClientMock.Object);
+                var result = campaignLogic.PlayerCanEditCampaign(1, 2);
+                Assert.False(result);
+            }
+        }
+
+        [Fact]
+        public void Test_PlayerCanEditCampaign_NoAccess()
+        {
+            var options = _setupCampaignTestContext("Test_PlayerCanEditCampaign_NoAccess");
+            using (var context = new TauDbContext(options))
+            {
+                var campaignLogic = new CampaignLogic(context, _tauHeadClientMock.Object);
+                var result = campaignLogic.PlayerCanEditCampaign(2, 1);
+                Assert.False(result);
+            }
+        }
+
+        [Fact]
+        public void Test_PlayerCanVolunteerForCampaign_Success()
+        {
+            var options = _setupCampaignTestContext("Test_PlayerCanVolunteerForCampaign_Success");
+            using (var context = new TauDbContext(options))
+            {
+                context.Campaign.Add(new Models.Campaign{
+                    Id = 2,
+                    Station = "TBD",
+                    Name = "Campaign #2",
+                    Comments = "Test comments",
+                    Difficulty = Models.Campaign.CampaignDifficulty.Extreme,
+                    Tiers = 31,
+                    SyndicateId = 1,
+                    Status = Models.Campaign.CampaignStatus.Unknown,
+                    UTCDateTime = DateTime.Parse("2020-12-31 00:00:00"),
+                    ManagerId = null,
+                });
+                context.SaveChanges();
+            }
+            using (var context = new TauDbContext(options))
+            {
+                var campaignLogic = new CampaignLogic(context, _tauHeadClientMock.Object);
+                var result = campaignLogic.PlayerCanVolunteerForCampaign(2, 2);
+                Assert.True(result);
+            }
+        }
+
+        [Fact]
+        public void Test_PlayerCanVolunteerForCampaign_NullPlayer()
+        {
+            var options = _setupCampaignTestContext("Test_PlayerCanVolunteerForCampaign_NullPlayer");
+            using (var context = new TauDbContext(options))
+            {
+                context.Campaign.Add(new Models.Campaign{
+                    Id = 2,
+                    Station = "TBD",
+                    Name = "Campaign #2",
+                    Comments = "Test comments",
+                    Difficulty = Models.Campaign.CampaignDifficulty.Extreme,
+                    Tiers = 31,
+                    SyndicateId = 1,
+                    Status = Models.Campaign.CampaignStatus.Unknown,
+                    UTCDateTime = DateTime.Parse("2020-12-31 00:00:00"),
+                    ManagerId = null,
+                });
+                context.SaveChanges();
+            }
+            using (var context = new TauDbContext(options))
+            {
+                var campaignLogic = new CampaignLogic(context, _tauHeadClientMock.Object);
+                var result = campaignLogic.PlayerCanVolunteerForCampaign(null, 2);
+                Assert.False(result);
+            }
+        }
+
+        [Fact]
+        public void Test_PlayerCanVolunteerForCampaign_NonExistentPlayer()
+        {
+            var options = _setupCampaignTestContext("Test_PlayerCanVolunteerForCampaign_NonExistentPlayer");
+            using (var context = new TauDbContext(options))
+            {
+                context.Campaign.Add(new Models.Campaign{
+                    Id = 2,
+                    Station = "TBD",
+                    Name = "Campaign #2",
+                    Comments = "Test comments",
+                    Difficulty = Models.Campaign.CampaignDifficulty.Extreme,
+                    Tiers = 31,
+                    SyndicateId = 1,
+                    Status = Models.Campaign.CampaignStatus.Unknown,
+                    UTCDateTime = DateTime.Parse("2020-12-31 00:00:00"),
+                    ManagerId = null,
+                });
+                context.SaveChanges();
+            }
+            using (var context = new TauDbContext(options))
+            {
+                var campaignLogic = new CampaignLogic(context, _tauHeadClientMock.Object);
+                var result = campaignLogic.PlayerCanVolunteerForCampaign(4, 2);
+                Assert.False(result);
+            }
+        }
+
+        [Fact]
+        public void Test_PlayerCanVolunteerForCampaign_AlreadyHasManager()
+        {
+            var options = _setupCampaignTestContext("Test_PlayerCanVolunteerForCampaign_AlreadyHasManager");
+            using (var context = new TauDbContext(options))
+            {
+                context.Campaign.Add(new Models.Campaign{
+                    Id = 2,
+                    Station = "TBD",
+                    Name = "Campaign #2",
+                    Comments = "Test comments",
+                    Difficulty = Models.Campaign.CampaignDifficulty.Extreme,
+                    Tiers = 31,
+                    SyndicateId = 1,
+                    Status = Models.Campaign.CampaignStatus.Unknown,
+                    UTCDateTime = DateTime.Parse("2020-12-31 00:00:00"),
+                    ManagerId = 1,
+                });
+                context.SaveChanges();
+            }
+            using (var context = new TauDbContext(options))
+            {
+                var campaignLogic = new CampaignLogic(context, _tauHeadClientMock.Object);
+                var result = campaignLogic.PlayerCanVolunteerForCampaign(2, 2);
+                Assert.False(result);
+            }
+        }
+
+        [Fact]
+        public void Test_PlayerCanVolunteerForCampaign_NonExistentCampaign()
+        {
+            var options = _setupCampaignTestContext("Test_PlayerCanVolunteerForCampaign_NonExistentCampaign");
+            using (var context = new TauDbContext(options))
+            {
+                context.Campaign.Add(new Models.Campaign{
+                    Id = 2,
+                    Station = "TBD",
+                    Name = "Campaign #2",
+                    Comments = "Test comments",
+                    Difficulty = Models.Campaign.CampaignDifficulty.Extreme,
+                    Tiers = 31,
+                    SyndicateId = 1,
+                    Status = Models.Campaign.CampaignStatus.Unknown,
+                    UTCDateTime = DateTime.Parse("2020-12-31 00:00:00"),
+                    ManagerId = null,
+                });
+                context.SaveChanges();
+            }
+            using (var context = new TauDbContext(options))
+            {
+                var campaignLogic = new CampaignLogic(context, _tauHeadClientMock.Object);
+                var result = campaignLogic.PlayerCanVolunteerForCampaign(1, 3);
+                Assert.False(result);
+            }
+        }
+
+        [Fact]
+        public void Test_PlayerCanVolunteerForCampaign_WrongSyndicateCampaign()
+        {
+            var options = _setupCampaignTestContext("Test_PlayerCanVolunteerForCampaign_WrongSyndicateCampaign");
+            using (var context = new TauDbContext(options))
+            {
+                context.Syndicate.Add(new Models.Syndicate
+                {
+                    Id= 2,
+                    Tag = "TTU",
+                });
+                context.Campaign.Add(new Models.Campaign{
+                    Id = 2,
+                    Station = "TBD",
+                    Name = "Campaign #2",
+                    Comments = "Test comments",
+                    Difficulty = Models.Campaign.CampaignDifficulty.Extreme,
+                    Tiers = 31,
+                    SyndicateId = 2,
+                    Status = Models.Campaign.CampaignStatus.Unknown,
+                    UTCDateTime = DateTime.Parse("2020-12-31 00:00:00"),
+                    ManagerId = null,
+                });
+                context.SaveChanges();
+            }
+            using (var context = new TauDbContext(options))
+            {
+                var campaignLogic = new CampaignLogic(context, _tauHeadClientMock.Object);
+                var result = campaignLogic.PlayerCanVolunteerForCampaign(1, 2);
+                Assert.False(result);
+            }
+        }
+
+        [Fact]
+        public void Test_PlayerCanVolunteerForCampaign_WrongCampaignStatus()
+        {
+            var options = _setupCampaignTestContext("Test_PlayerCanVolunteerForCampaign_WrongCampaignStatus");
+            using (var context = new TauDbContext(options))
+            {
+                context.Campaign.Add(new Models.Campaign{
+                    Id = 2,
+                    Station = "TBD",
+                    Name = "Campaign #2",
+                    Comments = "Test comments",
+                    Difficulty = Models.Campaign.CampaignDifficulty.Extreme,
+                    Tiers = 31,
+                    SyndicateId = 1,
+                    Status = Models.Campaign.CampaignStatus.InProgress,
+                    UTCDateTime = DateTime.Parse("2020-12-31 00:00:00"),
+                    ManagerId = null,
+                });
+                context.SaveChanges();
+            }
+            using (var context = new TauDbContext(options))
+            {
+                var campaignLogic = new CampaignLogic(context, _tauHeadClientMock.Object);
+                var result = campaignLogic.PlayerCanVolunteerForCampaign(1, 2);
+                Assert.False(result);
+            }
+        }
+
+        [Fact]
+        public async void Test_VolunteerForCampaign_Success()
+        {
+            var options = _setupCampaignTestContext("Test_VolunteerForCampaign_Success");
+            using (var context = new TauDbContext(options))
+            {
+                context.Campaign.Add(new Models.Campaign{
+                    Id = 2,
+                    Station = "TBD",
+                    Name = "Campaign #2",
+                    Comments = "Test comments",
+                    Difficulty = Models.Campaign.CampaignDifficulty.Extreme,
+                    Tiers = 31,
+                    SyndicateId = 1,
+                    Status = Models.Campaign.CampaignStatus.Unknown,
+                    UTCDateTime = DateTime.Parse("2020-12-31 00:00:00"),
+                    ManagerId = null,
+                });
+                context.SaveChanges();
+            }
+            using (var context = new TauDbContext(options))
+            {
+                var campaignLogic = new CampaignLogic(context, _tauHeadClientMock.Object);
+                var result = await campaignLogic.VolunteerForCampaign(1, 2);
+                Assert.True(result);
+                var campaign = context.Campaign.SingleOrDefault(c => c.Id == 2);
+                Assert.Equal(1, campaign.ManagerId);
+            }
+        }
+
+        [Fact]
+        public async void Test_VolunteerForCampaign_NoAccess()
+        {
+            var options = _setupCampaignTestContext("Test_VolunteerForCampaign_NoAccess");
+            using (var context = new TauDbContext(options))
+            {
+                context.Campaign.Add(new Models.Campaign{
+                    Id = 2,
+                    Station = "TBD",
+                    Name = "Campaign #2",
+                    Comments = "Test comments",
+                    Difficulty = Models.Campaign.CampaignDifficulty.Extreme,
+                    Tiers = 31,
+                    SyndicateId = 1,
+                    Status = Models.Campaign.CampaignStatus.Unknown,
+                    UTCDateTime = DateTime.Parse("2020-12-31 00:00:00"),
+                    ManagerId = 2,
+                });
+                context.SaveChanges();
+            }
+            using (var context = new TauDbContext(options))
+            {
+                var campaignLogic = new CampaignLogic(context, _tauHeadClientMock.Object);
+                var result = await campaignLogic.VolunteerForCampaign(1, 2);
+                Assert.False(result);
+                var campaign = context.Campaign.SingleOrDefault(c => c.Id == 2);
+                Assert.Equal(2, campaign.ManagerId);
+            }
+        }
+
+    }
 }
