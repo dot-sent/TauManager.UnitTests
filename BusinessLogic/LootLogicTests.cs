@@ -132,14 +132,14 @@ namespace TauManager.UnitTests.BusinessLogic
                         {
                             Id = 1,
                             CampaignId = 1,
-                            ItemId = 1,
+                            ItemId = 2,
                             Status = Models.CampaignLoot.CampaignLootStatus.Undistributed,
                         },
                         new Models.CampaignLoot
                         {
                             Id = 2,
                             CampaignId = 1,
-                            ItemId = 2,
+                            ItemId = 1,
                             Status = Models.CampaignLoot.CampaignLootStatus.Undistributed,
                         },
                         new Models.CampaignLoot
@@ -160,6 +160,7 @@ namespace TauManager.UnitTests.BusinessLogic
                     context.LootRequest.AddRange(
                         new Models.LootRequest
                         {
+                            Id = 1,
                             LootId = 2,
                             RequestedById = 1,
                             RequestedForId = 1,
@@ -167,6 +168,7 @@ namespace TauManager.UnitTests.BusinessLogic
                         },
                         new Models.LootRequest
                         {
+                            Id = 2,
                             LootId = 2,
                             RequestedById = 2,
                             RequestedForId = 2,
@@ -239,6 +241,8 @@ namespace TauManager.UnitTests.BusinessLogic
                 Assert.Null(result.CurrentPlayer);
                 Assert.Equal(3, result.AllPlayers.Count());
                 Assert.Equal(2, result.AllCampaignLoot.Keys.Count);
+                Assert.Equal(2, result.AllCampaignLoot[1].Count());
+                Assert.True(result.AllCampaignLoot[1].First().Item.Tier < result.AllCampaignLoot[1].Last().Item.Tier);
                 Assert.Equal(2, result.AllLootRequests.Keys.Count);
                 Assert.Equal(2, result.AllCampaigns.Count);
                 Assert.Equal(5, result.LootStatuses.Keys.Count);
@@ -248,6 +252,30 @@ namespace TauManager.UnitTests.BusinessLogic
                 Assert.False(result.IncludeInactive);
                 Assert.Empty(result.TotalAttendanceRate);
                 Assert.Empty(result.HardT5AttendanceRate);
+            }
+        }
+
+        [Theory]
+        [InlineData("CorrectWithLootRequest", 1, 1, null, true, 4, 1, null, 1)]
+        [InlineData("CorrectWithComment", 1, null, "Manual drop", true, 4, 1, "Manual drop", null)]
+        [InlineData("NoCommentNoLootRequestId", 1, null, null, false)]
+        [InlineData("NonExistentPlayer", 4, null, "Manual drop", false)]
+        [InlineData("NonExistentLootRequest", 1, 4, null, false)]
+        [InlineData("LootRequestPlayerMismatch", 1, 2, null, false)]
+        public async void Test_AppendPlayerToBottomAsync_Theory(string caption, int playerId, int? lootRequestId, string comment,
+            bool expectedResult, int expectedHistoryCount = 3, int expectedLastPlayerId = 3, string expectedLastComment = "Initial seed", int? expectedLastLootRequestId = null)
+        {
+            var options = _setupLootTestContext("Test_AppendPlayerToBottomAsync_Theory" + caption);
+            using (var context = new TauDbContext(options))
+            {
+                var lootLogic = new LootLogic(context, _campaignLogicMock.Object);
+                var result = await lootLogic.AppendPlayerToBottomAsync(playerId, lootRequestId, comment);
+                Assert.Equal(expectedResult, result);
+                Assert.Equal(expectedHistoryCount, context.PlayerListPositionHistory.Count());
+                var lastHistory = context.PlayerListPositionHistory.LastOrDefault();
+                Assert.Equal(expectedLastPlayerId, lastHistory.PlayerId);
+                Assert.Equal(expectedLastComment, lastHistory.Comment);
+                Assert.Equal(expectedLastLootRequestId, lastHistory.LootRequestId);
             }
         }
     }
