@@ -278,5 +278,78 @@ namespace TauManager.UnitTests.BusinessLogic
                 Assert.Equal(expectedLastLootRequestId, lastHistory.LootRequestId);
             }
         }
+
+        [Theory]
+        [InlineData("Correct", 2, Models.CampaignLoot.CampaignLootStatus.Other, true)]
+        [InlineData("NonExistentCampaignLoot", 5, Models.CampaignLoot.CampaignLootStatus.Other, false)]
+        public async void Test_SetLootStatusAsync_Theory(string caption, int id, Models.CampaignLoot.CampaignLootStatus status,
+            bool expectedResult)
+        {
+            var options = _setupLootTestContext("Test_SetLootStatusAsync_Theory" + caption);
+            using (var context = new TauDbContext(options))
+            {
+                var lootLogic = new LootLogic(context, _campaignLogicMock.Object);
+                var result = await lootLogic.SetLootStatusAsync(id, status);
+                Assert.Equal(result, expectedResult);
+                if (result)
+                {
+                    var campaignLoot = context.CampaignLoot.SingleOrDefault(cl => cl.Id == id);
+                    Assert.Equal(status, campaignLoot.Status);
+                }
+            }
+        }
+
+        [Theory]
+        [InlineData("CorrectNonZero", 2, 1, true, 1)]
+        [InlineData("CorrectZero", 2, 0, true, null)]
+        [InlineData("NonExistentCampaignLoot", 5, 1, false)]
+        [InlineData("NonExistentPlayer", 1, 5, false)]
+        public async void Test_SetLootHolderAsync_Theory(string caption, int lootId, int playerId,
+            bool expectedResult, int? expectedHolderId = null)
+        {
+            var options = _setupLootTestContext("Test_SetLootHolderAsync_Theory" + caption);
+            using (var context = new TauDbContext(options))
+            {
+                var lootLogic = new LootLogic(context, _campaignLogicMock.Object);
+                var result = await lootLogic.SetLootHolderAsync(lootId, playerId);
+                Assert.Equal(expectedResult, result);
+                if (result)
+                {
+                    var campaignLoot = context.CampaignLoot.SingleOrDefault(cl => cl.Id == lootId);
+                    Assert.Equal(expectedHolderId, campaignLoot.HolderId);
+                }
+            }
+        }
+
+        [Theory]
+        [InlineData("NonExistentCampaignLoot", 5, 1, 1, false)]
+        [InlineData("NonExistentPlayer", 1, 5, 1, false)]
+        [InlineData("WrongPlayerSyndicate", 1, 4, 1, false)]
+        public void Test_CreateNewLootApplication_Theory(string caption, int lootId, int playerId, int? currentPlayerId,
+            bool successExpected)
+        {
+            var options = _setupLootTestContext("Test_CreateNewLootApplication_Theory" + caption);
+            using (var context = new TauDbContext(options))
+            {
+                context.Syndicate.Add(new Models.Syndicate
+                {
+                    Id = 2,
+                    Tag = "TTU",
+                });
+                context.Player.Add(new Models.Player{
+                    Id = 4,
+                    Name = "Player4",
+                    SyndicateId = 2,
+                });
+                context.SaveChanges();
+            }
+            using (var context = new TauDbContext(options))
+            {
+                var lootLogic = new LootLogic(context, _campaignLogicMock.Object);
+                var result = lootLogic.CreateNewLootApplication(lootId, playerId, currentPlayerId);
+                Assert.True(successExpected ? result != null : result == null);
+
+            }
+        }
     }
 }
