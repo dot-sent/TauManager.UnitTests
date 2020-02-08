@@ -199,6 +199,16 @@ namespace TauManager.UnitTests.BusinessLogic
                             Id = 3,
                         }
                     );
+                    context.Syndicate.Add(new Models.Syndicate
+                    {
+                        Id = 2,
+                        Tag = "TTU",
+                    });
+                    context.Player.Add(new Models.Player{
+                        Id = 4,
+                        Name = "Player4",
+                        SyndicateId = 2,
+                    });
                     context.SaveChanges();
                 }
             }
@@ -259,7 +269,7 @@ namespace TauManager.UnitTests.BusinessLogic
         [InlineData("CorrectWithLootRequest", 1, 1, null, true, 4, 1, null, 1)]
         [InlineData("CorrectWithComment", 1, null, "Manual drop", true, 4, 1, "Manual drop", null)]
         [InlineData("NoCommentNoLootRequestId", 1, null, null, false)]
-        [InlineData("NonExistentPlayer", 4, null, "Manual drop", false)]
+        [InlineData("NonExistentPlayer", 5, null, "Manual drop", false)]
         [InlineData("NonExistentLootRequest", 1, 4, null, false)]
         [InlineData("LootRequestPlayerMismatch", 1, 2, null, false)]
         public async void Test_AppendPlayerToBottomAsync_Theory(string caption, int playerId, int? lootRequestId, string comment,
@@ -325,30 +335,104 @@ namespace TauManager.UnitTests.BusinessLogic
         [InlineData("NonExistentCampaignLoot", 5, 1, 1, false)]
         [InlineData("NonExistentPlayer", 1, 5, 1, false)]
         [InlineData("WrongPlayerSyndicate", 1, 4, 1, false)]
+        [InlineData("CorrectRequestExists", 2, 1, 1, true, 1, true)]
+        [InlineData("CorrectRequestDoesNotExist", 2, 3, 1, true)]
         public void Test_CreateNewLootApplication_Theory(string caption, int lootId, int playerId, int? currentPlayerId,
-            bool successExpected)
+            bool successExpected, int? expectedLootRequestId = 0, bool expectedExistingRequest = false)
         {
             var options = _setupLootTestContext("Test_CreateNewLootApplication_Theory" + caption);
-            using (var context = new TauDbContext(options))
-            {
-                context.Syndicate.Add(new Models.Syndicate
-                {
-                    Id = 2,
-                    Tag = "TTU",
-                });
-                context.Player.Add(new Models.Player{
-                    Id = 4,
-                    Name = "Player4",
-                    SyndicateId = 2,
-                });
-                context.SaveChanges();
-            }
             using (var context = new TauDbContext(options))
             {
                 var lootLogic = new LootLogic(context, _campaignLogicMock.Object);
                 var result = lootLogic.CreateNewLootApplication(lootId, playerId, currentPlayerId);
                 Assert.True(successExpected ? result != null : result == null);
+                if (successExpected) {
+                    Assert.Equal(expectedLootRequestId, result.Request.Id);
+                    Assert.Equal(lootId, result.Loot.Id);
+                    Assert.Equal(expectedExistingRequest, result.RequestExists);
+                }
+            }
+        }
 
+        [Theory]
+        [InlineData("CorrectCreate", 1, 3, null, 1, false, false, true)]
+        [InlineData("NonExistentCampaignLoot", 5, 3, null, 1, false, false, false)]
+        [InlineData("NonExistentPlayer", 1, 5, null, 1, false, false, false)]
+        [InlineData("WrongPlayerSyndicate", 1, 4, null, 1, false, false, false)]
+        [InlineData("CorrectDelete", 2, 1, null, 1, false, true, true)]
+        [InlineData("DeleteNonExistentRequest", 1, 1, null, 1, false, true, false)]
+        [InlineData("CorrectUpdateAddSpecialRequest", 2, 1, "Test Special Request", 1, true, false, true)]
+        [InlineData("CorrectUpdateRemoveSpecialRequest", 2, 2, null, 2, false, false, true)]
+        public async void Test_ApplyForLoot_Theory(string caption, int lootId, int playerId, string comments, int? currentPlayerId, bool specialOffer, bool deleteRequest,
+            bool expectedResult)
+        {
+            var options = _setupLootTestContext("Test_ApplyForLoot_Theory" + caption);
+            using (var context = new TauDbContext(options))
+            {
+                var lootLogic = new LootLogic(context, _campaignLogicMock.Object);
+                var result = await lootLogic.ApplyForLoot(lootId, playerId, comments, currentPlayerId, specialOffer, deleteRequest);
+                Assert.Equal(expectedResult, result);
+                if (expectedResult)
+                {
+                    var lootRequest = context.LootRequest.SingleOrDefault(lr => lr.LootId == lootId && lr.RequestedForId == playerId);
+                    if (deleteRequest)
+                    {
+                        Assert.Null(lootRequest);
+                    } else {
+                        Assert.NotNull(lootRequest);
+                        Assert.Equal(comments, lootRequest.SpecialOfferDescription);
+                        Assert.Equal(specialOffer ? Models.LootRequest.LootRequestStatus.SpecialOffer
+                            : Models.LootRequest.LootRequestStatus.Interested, lootRequest.Status);
+                    }
+                }
+            }
+        }
+
+        [Theory]
+        [InlineData("NonExistentCampaignLoot",               1, 1, 5,  0,  0, null,                   false, false)]
+        [InlineData("NonExistentPlayer",                     5, 1, 1,  0,  0, null,                   false, false)]
+        [InlineData("DeleteNonExistentRequest",              1, 1, 1, -1,  0, null,                   false, false)]
+        [InlineData("CreateCorrectRequestCreateOnly",        3, 3, 1,  0, -1, null,                   false, true )]
+        [InlineData("CreateCorrectRequestAndAwardDontDrop",  3, 3, 1,  1,  3, null,                   false, true )]
+        [InlineData("CreateCorrectRequestAndAwardDrop",      3, 3, 1,  1,  3, null,                    true, true )]
+        [InlineData("DeleteCorrectRequestDontDrop",          1, 1, 2, -1, -1, null,                   false, true )]
+        [InlineData("UpdateCorrectRequestDontAwardDontDrop", 1, 1, 2,  2, -1, "Test special request", false, true )]
+        [InlineData("UpdateCorrectRequestAwardDontDrop",     1, 1, 2,  1,  2, null,                   false, true )]
+        public async void Test_SetLootRequestStatus_Theory(string caption, int playerId, int currentPlayerId, int campaignLootId,
+            int status, int lootStatus, string comments, bool dropRequestorDown,
+            bool expectedResult)
+        {
+            var options = _setupLootTestContext("Test_SetLootRequestStatus_Theory" + caption);
+            using (var context = new TauDbContext(options))
+            {
+                var lootLogic = new LootLogic(context, _campaignLogicMock.Object);
+                var result = await lootLogic.SetLootRequestStatus(playerId, currentPlayerId, campaignLootId, status, lootStatus, comments, dropRequestorDown);
+                Assert.Equal(expectedResult, result);
+                if (status > -1 && expectedResult)
+                {
+                    var testRequest = context.LootRequest.SingleOrDefault(lr => lr.RequestedForId == playerId && lr.LootId == campaignLootId);
+                    Assert.NotNull(testRequest);
+                    Assert.Equal((Models.LootRequest.LootRequestStatus)status, testRequest.Status);
+                    Assert.Equal(comments, testRequest.SpecialOfferDescription);
+                    var testLoot = context.CampaignLoot.SingleOrDefault(cl => cl.Id == campaignLootId);
+                    Assert.NotNull(testLoot);
+                    if (lootStatus > -1)
+                    {
+                        Assert.Equal((Models.CampaignLoot.CampaignLootStatus)lootStatus, testLoot.Status);
+                        Assert.Equal(playerId, testLoot.HolderId);
+                    }
+                    if (dropRequestorDown)
+                    {
+                        Assert.Equal(4, context.PlayerListPositionHistory.Count());
+                        var lastHistoryEntry = context.PlayerListPositionHistory.LastOrDefault();
+                        Assert.NotNull(lastHistoryEntry);
+                        Assert.Equal("Drop associated with loot request", lastHistoryEntry.Comment);
+                        Assert.Equal(playerId, lastHistoryEntry.PlayerId);
+                        Assert.NotNull(lastHistoryEntry.LootRequest);
+                        Assert.Equal(campaignLootId, lastHistoryEntry.LootRequest.LootId);
+                        Assert.True(lastHistoryEntry.CreatedAt > DateTime.Now.AddMinutes(-1) && lastHistoryEntry.CreatedAt < DateTime.Now.AddMinutes(1));
+                    }
+                }
             }
         }
     }
