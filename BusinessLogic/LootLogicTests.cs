@@ -148,6 +148,7 @@ namespace TauManager.UnitTests.BusinessLogic
                             CampaignId = 2,
                             ItemId = 1,
                             Status = Models.CampaignLoot.CampaignLootStatus.Undistributed,
+                            AvailableToOtherSyndicates = true,
                         },
                         new Models.CampaignLoot
                         {
@@ -155,6 +156,22 @@ namespace TauManager.UnitTests.BusinessLogic
                             CampaignId = 2,
                             ItemId = 3,
                             Status = Models.CampaignLoot.CampaignLootStatus.Undistributed,
+                            AvailableToOtherSyndicates = true,
+                        },
+                        new Models.CampaignLoot
+                        {
+                            Id = 5,
+                            CampaignId = 1,
+                            ItemId = 3,
+                            Status = Models.CampaignLoot.CampaignLootStatus.Other,
+                        },
+                        new Models.CampaignLoot
+                        {
+                            Id = 6,
+                            CampaignId = 1,
+                            ItemId = 3,
+                            Status = Models.CampaignLoot.CampaignLootStatus.StaysWithSyndicate,
+                            AvailableToOtherSyndicates = true,
                         }
                     );
                     context.LootRequest.AddRange(
@@ -251,7 +268,7 @@ namespace TauManager.UnitTests.BusinessLogic
                 Assert.Null(result.CurrentPlayer);
                 Assert.Equal(3, result.AllPlayers.Count());
                 Assert.Equal(2, result.AllCampaignLoot.Keys.Count);
-                Assert.Equal(2, result.AllCampaignLoot[1].Count());
+                Assert.Equal(4, result.AllCampaignLoot[1].Count());
                 Assert.True(result.AllCampaignLoot[1].First().Item.Tier < result.AllCampaignLoot[1].Last().Item.Tier);
                 Assert.Equal(2, result.AllLootRequests.Keys.Count);
                 Assert.Equal(2, result.AllCampaigns.Count);
@@ -291,7 +308,7 @@ namespace TauManager.UnitTests.BusinessLogic
 
         [Theory]
         [InlineData("Correct", 2, Models.CampaignLoot.CampaignLootStatus.Other, true)]
-        [InlineData("NonExistentCampaignLoot", 5, Models.CampaignLoot.CampaignLootStatus.Other, false)]
+        [InlineData("NonExistentCampaignLoot", 7, Models.CampaignLoot.CampaignLootStatus.Other, false)]
         public async void Test_SetLootStatusAsync_Theory(string caption, int id, Models.CampaignLoot.CampaignLootStatus status,
             bool expectedResult)
         {
@@ -312,7 +329,7 @@ namespace TauManager.UnitTests.BusinessLogic
         [Theory]
         [InlineData("CorrectNonZero", 2, 1, true, 1)]
         [InlineData("CorrectZero", 2, 0, true, null)]
-        [InlineData("NonExistentCampaignLoot", 5, 1, false)]
+        [InlineData("NonExistentCampaignLoot", 7, 1, false)]
         [InlineData("NonExistentPlayer", 1, 5, false)]
         public async void Test_SetLootHolderAsync_Theory(string caption, int lootId, int playerId,
             bool expectedResult, int? expectedHolderId = null)
@@ -332,7 +349,7 @@ namespace TauManager.UnitTests.BusinessLogic
         }
 
         [Theory]
-        [InlineData("NonExistentCampaignLoot", 5, 1, 1, false)]
+        [InlineData("NonExistentCampaignLoot", 7, 1, 1, false)]
         [InlineData("NonExistentPlayer", 1, 5, 1, false)]
         [InlineData("WrongPlayerSyndicate", 1, 4, 1, false)]
         [InlineData("CorrectRequestExists", 2, 1, 1, true, 1, true)]
@@ -356,7 +373,7 @@ namespace TauManager.UnitTests.BusinessLogic
 
         [Theory]
         [InlineData("CorrectCreate", 1, 3, null, 1, false, false, true)]
-        [InlineData("NonExistentCampaignLoot", 5, 3, null, 1, false, false, false)]
+        [InlineData("NonExistentCampaignLoot", 7, 3, null, 1, false, false, false)]
         [InlineData("NonExistentPlayer", 1, 5, null, 1, false, false, false)]
         [InlineData("WrongPlayerSyndicate", 1, 4, null, 1, false, false, false)]
         [InlineData("CorrectDelete", 2, 1, null, 1, false, true, true)]
@@ -389,7 +406,7 @@ namespace TauManager.UnitTests.BusinessLogic
         }
 
         [Theory]
-        [InlineData("NonExistentCampaignLoot",               1, 1, 5,  0,  0, null,                   false, false)]
+        [InlineData("NonExistentCampaignLoot",               1, 1, 7,  0,  0, null,                   false, false)]
         [InlineData("NonExistentPlayer",                     5, 1, 1,  0,  0, null,                   false, false)]
         [InlineData("DeleteNonExistentRequest",              1, 1, 1, -1,  0, null,                   false, false)]
         [InlineData("CreateCorrectRequestCreateOnly",        3, 3, 1,  0, -1, null,                   false, true )]
@@ -432,6 +449,31 @@ namespace TauManager.UnitTests.BusinessLogic
                         Assert.Equal(campaignLootId, lastHistoryEntry.LootRequest.LootId);
                         Assert.True(lastHistoryEntry.CreatedAt > DateTime.Now.AddMinutes(-1) && lastHistoryEntry.CreatedAt < DateTime.Now.AddMinutes(1));
                     }
+                }
+            }
+        }
+
+        [Theory]
+        [InlineData("GetCorrectOverviewSameSyndicate", new int[]{0,1,2,3,4}, 1, 6, 0)]
+        [InlineData("GetCorrectOverviewOtherSyndicate", new int[]{0,1,2,3,4}, 2, 0, 3)]
+        [InlineData("GetCorrectOverviewNullDisplay", null, 1, 6, 0)]
+        public void Test_GetOverview_Theory(string caption, int[] display, int syndicateId, 
+            int expectedLootCount, int expectedOSLootCount)
+        {
+            var options = _setupLootTestContext("Test_GetOverview_Theory" + caption);
+            using (var context = new TauDbContext(options))
+            {
+                var lootLogic = new LootLogic(context, _campaignLogicMock.Object);
+                var result = lootLogic.GetOverview(display, syndicateId);
+                Assert.NotNull(result);
+                Assert.Equal(expectedLootCount, result.AllLoot.Count());
+                Assert.Equal(expectedOSLootCount, result.OtherSyndicatesLoot.Count());
+                Assert.Equal(5, result.LootStatuses.Keys.Count);
+                if (display == null) 
+                {
+                    Assert.Equal(new int[]{0,1,2,3,4}, result.Display);
+                } else {
+                    Assert.Equal(display, result.Display);
                 }
             }
         }
