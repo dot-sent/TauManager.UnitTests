@@ -6,15 +6,18 @@ using Microsoft.EntityFrameworkCore;
 using Moq;
 using TauManager.BusinessLogic;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace TauManager.UnitTests.BusinessLogic
 {
     public class LootLogicTests
     {
         private Mock<ICampaignLogic> _campaignLogicMock { get; set; }
+        private ITestOutputHelper _output { get; set; }
         
-        public LootLogicTests()
+        public LootLogicTests(ITestOutputHelper output)
         {
+            _output = output;
             _campaignLogicMock = new Mock<ICampaignLogic>();
             _campaignLogicMock.Setup(cl => cl.GetCampaignAttendance(null, 1)).Returns(
                 new ViewModels.AttendanceViewModel
@@ -464,17 +467,31 @@ namespace TauManager.UnitTests.BusinessLogic
             using (var context = new TauDbContext(options))
             {
                 var lootLogic = new LootLogic(context, _campaignLogicMock.Object);
-                var result = lootLogic.GetOverview(display, syndicateId);
+                var result = lootLogic.GetOverview(display, 0, 0, syndicateId);
                 Assert.NotNull(result);
                 Assert.Equal(expectedLootCount, result.AllLoot.Count());
                 Assert.Equal(expectedOSLootCount, result.OtherSyndicatesLoot.Count());
                 Assert.Equal(5, result.LootStatuses.Keys.Count);
-                if (display == null) 
+                if (display == null)
                 {
                     Assert.Equal(new int[]{0,1,2,3,4}, result.Display);
                 } else {
                     Assert.Equal(display, result.Display);
                 }
+            }
+        }
+
+        [Theory]
+        [InlineData("GetCorrectInfo", 2, 2)]
+        public void Test_GetLootRequestsInfoTheory(string caption, int campaignLootId,
+            int? expectedLootRequestCount)
+        {
+            var options = _setupLootTestContext("Test_GetLootRequestsInfoTheory" + caption);
+            using (var context = new TauDbContext(options))
+            {
+                var lootLogic = new LootLogic(context, _campaignLogicMock.Object);
+                var result = lootLogic.GetLootRequestsInfo(campaignLootId);
+                Assert.Equal(expectedLootRequestCount, result == null || result.Requests == null ? null : (int?)result.Requests.Count());
             }
         }
     }
