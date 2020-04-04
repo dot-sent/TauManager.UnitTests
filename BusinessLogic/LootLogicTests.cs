@@ -482,7 +482,9 @@ namespace TauManager.UnitTests.BusinessLogic
         }
 
         [Theory]
-        [InlineData("GetCorrectInfo", 2, 2)]
+        [InlineData("GetInfoForLootWithoutRequests", 1, 0)]
+        [InlineData("GetInfoForLootWithRequests", 2, 2)]
+        [InlineData("GetInfoForNonExistentLoot", 8, null)]
         public void Test_GetLootRequestsInfoTheory(string caption, int campaignLootId,
             int? expectedLootRequestCount)
         {
@@ -492,6 +494,46 @@ namespace TauManager.UnitTests.BusinessLogic
                 var lootLogic = new LootLogic(context, _campaignLogicMock.Object);
                 var result = lootLogic.GetLootRequestsInfo(campaignLootId);
                 Assert.Equal(expectedLootRequestCount, result == null || result.Requests == null ? null : (int?)result.Requests.Count());
+            }
+        }
+
+        [Theory]
+        [InlineData("AwardPermanentlyCorrect", 2, 1, Models.CampaignLoot.CampaignLootStatus.PermanentlyAwarded, false, true, true, 1)]
+        [InlineData("AwardNonExistentLoot", 10, 1, Models.CampaignLoot.CampaignLootStatus.PermanentlyAwarded, false, false, false, 1)]
+        [InlineData("AwardLootStayWithSyndicate", 2, null, Models.CampaignLoot.CampaignLootStatus.StaysWithSyndicate, false, true, true, null)]
+        [InlineData("AwardExistentLootNonexistentRequest", 2, 10, Models.CampaignLoot.CampaignLootStatus.PermanentlyAwarded, false, false, true, null)]
+        public async void Test_AwardLootTheory(string caption, int campaignLootId, int? lootRequestId, 
+            Models.CampaignLoot.CampaignLootStatus status, bool? lootAvailableToOtherSyndicates,
+            bool expecteResult, bool expectedLootExists, int? expectedHolderId)
+        {
+            var options = _setupLootTestContext("Test_AwardLootTheory" + caption);
+            using (var context = new TauDbContext(options))
+            {
+                var lootLogic = new LootLogic(context, _campaignLogicMock.Object);
+                var result = await lootLogic.AwardLoot(campaignLootId, lootRequestId, status, lootAvailableToOtherSyndicates);
+                Assert.Equal(expecteResult, result);
+                var loot = context.CampaignLoot.SingleOrDefault(cl => cl.Id == campaignLootId);
+                if (expectedLootExists)
+                {
+                    Assert.NotNull(loot);
+                    if (result){
+                        Assert.Equal(loot.Status, status);
+                        Assert.Equal(loot.HolderId, expectedHolderId);
+                        Assert.Equal(loot.AvailableToOtherSyndicates, lootAvailableToOtherSyndicates);
+                        if (lootRequestId.HasValue)
+                        {
+                            var lootRequest = context.LootRequest.SingleOrDefault(lr => lr.Id == lootRequestId);
+                            Assert.Equal(Models.LootRequest.LootRequestStatus.Awarded, lootRequest.Status);
+                            var positionHistory = context.PlayerListPositionHistory.SingleOrDefault(plph => plph.LootRequestId == lootRequestId);
+                            Assert.NotNull(positionHistory);
+                            Assert.Equal(expectedHolderId, positionHistory.PlayerId);
+                            Assert.Equal("Drop associated with loot request", positionHistory.Comment);
+                            Assert.NotNull(positionHistory.CreatedAt);
+                        }
+                    }
+                } else {
+                    Assert.Null(loot);
+                }
             }
         }
     }
