@@ -13,7 +13,6 @@ namespace TauManager.UnitTests.BusinessLogic
     {
         private Mock<ITauHeadClient> _tauHeadClientMock { get; set; }
 
-
         public InternalLogicTests()
         {
             _tauHeadClientMock = new Mock<ITauHeadClient>();
